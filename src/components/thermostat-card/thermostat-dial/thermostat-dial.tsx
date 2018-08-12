@@ -1,4 +1,4 @@
-import { Component, Prop, State } from '@stencil/core';
+import { Component, Prop, State, Event, EventEmitter } from '@stencil/core';
 import { SvgUtil } from '../svgutil'
 @Component({
   tag: 'thermostat-dial',
@@ -6,11 +6,90 @@ import { SvgUtil } from '../svgutil'
   shadow: true
 })
 export class ThermostatDial {
+  @Prop() stateAttribute: any;
   @Prop() diameter: number = 400;
   @Prop() num_ticks: number = 150;
+  @Prop() pending: number = 2;
+  @Prop() control: any;
+  @Prop() chevron_size: number = 50;
 
-  @State() radius: number = this.diameter / 2;
-  @State() ticks: any = [];
+  @State() dual: boolean = false;
+  @State() _in_control: boolean;
+
+  @Event() onUpdate: EventEmitter;
+
+  root: HTMLDivElement;
+  radius: number = this.diameter / 2;
+  ticks: any = [];
+  temperature_slots: any = [];
+  text: any = [];
+  tap_areas: any = [];
+
+  _buildText(radius, name) {
+    let offset = 0;
+    if (name == 'target' || name == 'ambient') offset += 20;
+    if (name == 'low') offset = -radius / 2.5;
+    if (name == 'high') offset = radius / 3;
+    const textClass = `dial__lbl dial__lbl--${name}`;
+    const superscripClass = `dial__lbl--super--${name}`;
+
+    return (
+      <text x={radius + offset} y={radius} id={name} class={textClass}>
+        <tspan />
+        <tspan x={radius + radius / 3.1 + offset} y={radius - radius / 6} class={superscripClass}></tspan>
+      </text>
+    )
+  }
+
+  _updateText(id, value) {
+    const lblTarget = this.text[id].elm.querySelectorAll('tspan');
+    const text = Math.floor(value);
+    if (value) {
+      lblTarget[0].textContent = text;
+      if (value % 1 != 0) {
+        lblTarget[1].textContent = '5';
+      } else {
+        lblTarget[1].textContent = '';
+      }
+    }
+    if (this.in_control && id == 'target' && this.dual) {
+      lblTarget[0].textContent = '·';
+    }
+  }
+
+  _enableControls() {
+    this._in_control = true;
+    this._updateClass('in_control', this.in_control);
+    if (this._timeoutHandler) clearTimeout(this._timeoutHandler);
+    this._updateClass('dial--edit', true);
+    this._updateClass('has-thermo', true);
+    this._updateText('target', this.temperature.target);
+    this._updateText('low', this.temperature.low);
+    this._updateText('high', this.temperature.high);
+    this._timeoutHandler = setTimeout(() => {
+      this._updateText('ambient', this.ambient);
+      this._updateClass('dial--edit', false);
+      this._updateClass('has-thermo', false);
+      this._in_control = false;
+      this._updateClass('in_control', this.in_control);
+      this.onUpdate.emit({ temperature: this.temperature, stateAttribute: this.stateAttribute });
+    }, this.pending * 1000);
+  }
+
+  _buildChevrons(radius, rotation, id, scale, offset) {
+    const translation = rotation > 0 ? -1 : 1;
+    const width = this.chevron_size;
+    const className = `dial__chevron dial__chevron--${id}`;
+    const chevron_def = SvgUtil.scalePath(["M", 0, 0, "L", width / 2, width * 0.3, "L", width, 0], scale);
+    const position = 'translate(' + [radius - width / 2 * scale * translation + offset, radius + 70 * scale * 1.1 * translation].join(',') + ')';
+    return (
+      <path
+        class={className}
+        d={chevron_def}
+        transform={position} />
+    )
+  }
+
 
   render() {
     // root
@@ -19,7 +98,7 @@ export class ThermostatDial {
     // outer ring
     const defEditableIndicator = SvgUtil.donutPath(this.radius, this.radius, this.radius - 4, this.radius - 8);
     for (let i = 0; i < this.num_ticks; i++) {
-        this.ticks.push(<path key={i} />);
+      this.ticks.push(<path key={i} />);
     }
     // Leaf
     const leafScale = this.radius / 500;
@@ -29,24 +108,100 @@ export class ThermostatDial {
       -20, 16, -43, 24, "C", 22, 63, 8, 78, 3, 84, "z"], leafScale);
     const leafPosition = 'translate(' + [this.radius - (leafScale * 5), this.radius * 1.5].join(',') + ')';
 
+    // thermostat icon
+    const thermoScale = this.radius / 300;
+    const defThermo = SvgUtil.scalePath(['M', 37.999, 38.261, 'V', 7, 'c', 0, -3.859, -3.141,
+      -7, -7, -7, 's', -7, 3.141, -7, 7, 'v', 31.261, 'c', -3.545, 2.547, -5.421, 6.769, -4.919,
+      11.151, 'c', 0.629, 5.482, 5.066, 9.903, 10.551, 10.512, 'c', 0.447, 0.05, 0.895, 0.074,
+      1.339, 0.074, 'c', 2.956, 0, 5.824, -1.08, 8.03, -3.055, 'c', 2.542, -2.275, 3.999, -5.535, 3.999, -8.943,
+      'C', 42.999, 44.118, 41.14, 40.518, 37.999, 38.261, 'Z', 'M', 37.666, 55.453, 'c', -2.146,
+      1.921, -4.929, 2.8, -7.814, 2.482, 'c', -4.566, -0.506, -8.261, -4.187, -8.785, -8.752, 'c',
+      -0.436, -3.808, 1.28, -7.471, 4.479, -9.56, 'l', 0.453, -0.296, 'V', 38, 'h', 1, 'c', 0.553,
+      0, 1, -0.447, 1, -1, 's', -0.447, -1, -1, -1, 'h', -1, 'v', -3, 'h', 1, 'c', 0.553, 0, 1, -0.447,
+      1, -1, 's', -0.447, -1, -1, -1, 'h', -1, 'v', -3, 'h', 1, 'c', 0.553, 0, 1, -0.447, 1, -1, 's',
+      -0.447, -1, -1, -1, 'h', -1, 'v', -3, 'h', 1, 'c', 0.553, 0, 1, -0.447, 1, -1, 's', -0.447, -1,
+      -1, -1, 'h', -1, 'v', -3, 'h', 1, 'c', 0.553, 0, 1, -0.447, 1, -1, 's', -0.447, -1, -1, -1, 'h',
+      -1, 'v', -3, 'h', 1, 'c', 0.553, 0, 1, -0.447, 1, -1, 's', -0.447, -1, -1, -1, 'h', -1, 'V', 8,
+      'h', 1, 'c', 0.553, 0, 1, -0.447, 1, -1, 's', -0.447, -1, -1, -1, 'H', 26.1, 'c', 0.465, -2.279,
+      2.484, -4, 4.899, -4, 'c', 2.757, 0, 5, 2.243, 5, 5, 'v', 1, 'h', -1, 'c', -0.553, 0, -1, 0.447,
+      -1, 1, 's', 0.447, 1, 1, 1, 'h', 1, 'v', 3, 'h', -1, 'c', -0.553, 0, -1, 0.447, -1, 1, 's', 0.447,
+      1, 1, 1, 'h', 1, 'v', 3, 'h', -1, 'c', -0.553, 0, -1, 0.447, -1, 1, 's', 0.447, 1, 1, 1, 'h', 1, 'v',
+      3, 'h', -1, 'c', -0.553, 0, -1, 0.447, -1, 1, 's', 0.447, 1, 1, 1, 'h', 1, 'v', 3, 'h', -1, 'c', -0.553,
+      0, -1, 0.447, -1, 1, 's', 0.447, 1, 1, 1, 'h', 1, 'v', 3, 'h', -1, 'c', -0.553, 0, -1, 0.447, -1, 1, 's',
+      0.447, 1, 1, 1, 'h', 1, 'v', 4.329, 'l', 0.453, 0.296, 'c', 2.848, 1.857, 4.547, 4.988, 4.547, 8.375,
+      'C', 40.999, 50.841, 39.784, 53.557, 37.666, 55.453, 'Z'], thermoScale);
+
+    // temperature ring slots
+    const thermoPosition = 'translate(' + [this.radius - (thermoScale * 30), this.radius * 1.65].join(',') + ')';
+    this.temperature_slots.length = 0;
+    for (let i = 0; i < 3; i++) {
+      const id = 'temperature_slot_' + i
+      this.temperature_slots.push(<text class='dial__lbl dial__lbl--ring' id={id} />)
+    }
+
+    // various temperature slots
+    const text = [];
+    ['ambient', 'target', 'low', 'high'].forEach(
+      el => {
+        const element = this._buildText(this.radius, el);
+        text.push(element);
+        this.text[el] = element;
+      }
+    )
+
+    // control chevrons
+    const chevrons = [];
+    chevrons.push(this._buildChevrons(this.radius, 0, 'low', 0.7, -this.radius / 2.5));
+    chevrons.push(this._buildChevrons(this.radius, 0, 'high', 0.7, this.radius / 3));
+    chevrons.push(this._buildChevrons(this.radius, 0, 'target', 1, 0));
+    chevrons.push(this._buildChevrons(this.radius, 180, 'low', 0.7, -this.radius / 2.5));
+    chevrons.push(this._buildChevrons(this.radius, 180, 'high', 0.7, this.radius / 3));
+    chevrons.push(this._buildChevrons(this.radius, 180, 'target', 1, 0));
+
+    // tapping zones
+
+    let startAngle = 270;
+    let loop = 4;
+    this.tap_areas.length = 0;
+    for (let index = 0; index < loop; index++) {
+      const angle = 360 / loop;
+      const sector = SvgUtil.anglesToSectors(this.radius, startAngle, angle);
+      const controlsDef = 'M' + sector.L + ',' + sector.L + ' L' + sector.L + ',0 A' + sector.L + ',' + sector.L + ' 1 0,1 ' + sector.X + ', ' + sector.Y + ' z';
+      const position = 'rotate(' + sector.R + ', ' + sector.L + ', ' + sector.L + ')';
+      const path = (<path
+        class='dial__temperatureControl'
+        d={controlsDef}
+        transform={position} />
+      )
+      this.tap_areas.push(path);
+      //addEventListener('click', () => this._temperatureControlClicked(index));
+      startAngle = startAngle + angle;
+    }
+
+
     return (
-      <div class='dial_container'>
+      <div class='dial_container' ref={(el: HTMLDivElement) => this.root = el} onClick={() => this._enableControls()}>
         <svg xmlns="http://www.w3.org/svg/2000"
           width='100%' height='100%' viewBox={viewBox} class='dial'>
           <circle
-            cx={this.radius} cy={this.radius} r={this.radius} class='dial_shape'>
-          </circle>
+            cx={this.radius} cy={this.radius} r={this.radius} class='dial_shape' />
           <path
-            d={defEditableIndicator} class='dial__editableIndicator'
-          ></path>
+            d={defEditableIndicator} class='dial__editableIndicator' />
           <g class='dial__ticks'>
             {this.ticks}
           </g>
           <path
             d={defLeaf}
             class='dial__ico__leaf'
-            transform={leafPosition}
-          ></path>
+            transform={leafPosition} />
+          <path
+            d={defThermo}
+            class='dial__ico__thermo'
+            transform={thermoPosition} />
+          {this.temperature_slots}
+          {text}
+          {chevrons}
+          {this.tap_areas}
         </svg>
       </div>
     );
@@ -70,25 +225,17 @@ export class ThermostatDial {
     chevron_size: number,
     control: any,
   };
-  @State() _ticks: any;
   @State() _controls: any;
-  @State() _dual: boolean;
-  @State() _in_control: boolean;
-  @State() _ambient: number;
-  @State() _low: number;
-  @State() _high: number;
-  @State() _target: number;
-  @Prop() min_value: number;
-  @Prop() max_value: number;
+
+  @State() _ambient: number = 0;
+  @State() _low: number = 0;
+  @State() _high: number = 0;
+  @State() _target: number = 0;
+  @Prop() min_value: number = 0;
+  @Prop() max_value: number = 0;
   @Prop() hvac_state: any;
   @State() _timeoutHandler: any;
 
-  set dual(val) {
-    this._dual = val
-  }
-  get dual() {
-    return this._dual;
-  }
   get in_control() {
     return this._in_control;
   }
@@ -111,36 +258,6 @@ export class ThermostatDial {
     if (this._low && this._high) this.dual = true;
   }
 
-  _updateDial() {
-
-    const config = this._config; // need certain options for updates
-    this._ticks = []; // need for dynamic tick updates
-    this._controls = []; // need for managing highlight and clicks
-    this._dual = false; // by default is single temperature
-    const root = {
-      appendChild: function (test) { return test },
-    };
-    root.appendChild(this._buildLeaf(config.radius));
-    root.appendChild(this._buildThermoIcon(config.radius));
-    root.appendChild(this._buildDialSlot(1));
-    root.appendChild(this._buildDialSlot(2));
-    root.appendChild(this._buildDialSlot(3));
-
-    root.appendChild(this._buildText(config.radius, 'ambient', 0));
-    root.appendChild(this._buildText(config.radius, 'target', 0));
-    root.appendChild(this._buildText(config.radius, 'low', -config.radius / 2.5));
-    root.appendChild(this._buildText(config.radius, 'high', config.radius / 3));
-    root.appendChild(this._buildChevrons(config.radius, 0, 'low', 0.7, -config.radius / 2.5));
-    root.appendChild(this._buildChevrons(config.radius, 0, 'high', 0.7, config.radius / 3));
-    root.appendChild(this._buildChevrons(config.radius, 0, 'target', 1, 0));
-    root.appendChild(this._buildChevrons(config.radius, 180, 'low', 0.7, -config.radius / 2.5));
-    root.appendChild(this._buildChevrons(config.radius, 180, 'high', 0.7, config.radius / 3));
-    root.appendChild(this._buildChevrons(config.radius, 180, 'target', 1, 0));
-
-    this._root = root;
-    this._buildControls(config.radius);
-    this._root.addEventListener('click', () => this._enableControls());
-  }
 
   updateState(options) {
     const config = this._config;
@@ -290,48 +407,14 @@ export class ThermostatDial {
   }
 
   _updateEdit(show_edit) {
-    SvgUtil.setClass(this._root, 'dial--edit', show_edit);
-  }
-
-  _enableControls() {
-    const config = this._config;
-    this._in_control = true;
-    this._updateClass('in_control', this.in_control);
-    if (this._timeoutHandler) clearTimeout(this._timeoutHandler);
-    this._updateEdit(true);
-    this._updateClass('has-thermo', true);
-    this._updateText('target', this.temperature.target);
-    this._updateText('low', this.temperature.low);
-    this._updateText('high', this.temperature.high);
-    this._timeoutHandler = setTimeout(() => {
-      this._updateText('ambient', this.ambient);
-      this._updateEdit(false);
-      this._updateClass('has-thermo', false);
-      this._in_control = false;
-      this._updateClass('in_control', this.in_control);
-      config.control();
-    }, config.pending * 1000);
+    SvgUtil.setClass(this.root, 'dial--edit', show_edit);
   }
 
   _updateClass(class_name, flag) {
-    SvgUtil.setClass(this._root, class_name, flag);
+    SvgUtil.setClass(this.root, class_name, flag);
   }
 
-  _updateText(id, value) {
-    const lblTarget = this._root.querySelector(`#${id}`).querySelectorAll('tspan');
-    const text = Math.floor(value);
-    if (value) {
-      lblTarget[0].textContent = text;
-      if (value % 1 != 0) {
-        lblTarget[1].textContent = '5';
-      } else {
-        lblTarget[1].textContent = '';
-      }
-    }
-    if (this.in_control && id == 'target' && this.dual) {
-      lblTarget[0].textContent = '·';
-    }
-  }
+
 
   _updateTemperatureSlot(value, offset, slot) {
     const config = this._config;
@@ -371,7 +454,7 @@ export class ThermostatDial {
       [config.radius - 1.5, config.ticks_inner_radius + 20]
     ];
 
-    this._ticks.forEach((tick, index) => {
+    this.ticks.forEach((tick, index) => {
       let isLarge = false;
       let isActive = (index >= from && index <= to) ? 'active' : '';
       large_ticks.forEach(i => isLarge = isLarge || (index == i));
@@ -382,92 +465,5 @@ export class ThermostatDial {
         class: isActive
       });
     });
-  }
-
-  _buildLeaf(radius) {
-    const leafScale = radius / 5 / 100;
-    const leafDef = ["M", 3, 84, "c", 24, 17, 51, 18, 73, -6, "C", 100, 52,
-      100, 22, 100, 4, "c", -13, 15, -37, 9, -70, 19, "C", 4, 32, 0, 63, 0,
-      76, "c", 6, -7, 18, -17, 33, -23, 24, -9, 34, -9, 48, -20, -9, 10,
-      -20, 16, -43, 24, "C", 22, 63, 8, 78, 3, 84, "z"].map((x: number) => isNaN(x) ? x : x * leafScale).join(' ');
-    const translate = [radius - (leafScale * 100 * 0.5), radius * 1.5]
-    return SvgUtil.createSVGElement('path', {
-      class: 'dial__ico__leaf',
-      d: leafDef,
-      transform: 'translate(' + translate[0] + ',' + translate[1] + ')'
-    });
-  }
-
-  _buildChevrons(radius, rotation, id, scale, offset) {
-    const config = this._config;
-    const translation = rotation > 0 ? -1 : 1;
-    const width = config.chevron_size;
-    const chevron_def = ["M", 0, 0, "L", width / 2, width * 0.3, "L", width, 0].map((x: number) => isNaN(x) ? x : x * scale).join(' ');
-    const translate = [radius - width / 2 * scale * translation + offset, radius + 70 * scale * 1.1 * translation];
-    const chevron = SvgUtil.createSVGElement('path', {
-      class: `dial__chevron dial__chevron--${id}`,
-      d: chevron_def,
-      transform: `translate(${translate[0]},${translate[1]}) rotate(${rotation})`
-    });
-    return chevron;
-  }
-
-  _buildThermoIcon(radius) {
-    const thermoScale = radius / 3 / 100;
-    const thermoDef = 'M 37.999 38.261 V 7 c 0 -3.859 -3.141 -7 -7 -7 s -7 3.141 -7 7 v 31.261 c -3.545 2.547 -5.421 6.769 -4.919 11.151 c 0.629 5.482 5.066 9.903 10.551 10.512 c 0.447 0.05 0.895 0.074 1.339 0.074 c 2.956 0 5.824 -1.08 8.03 -3.055 c 2.542 -2.275 3.999 -5.535 3.999 -8.943 C 42.999 44.118 41.14 40.518 37.999 38.261 Z M 37.666 55.453 c -2.146 1.921 -4.929 2.8 -7.814 2.482 c -4.566 -0.506 -8.261 -4.187 -8.785 -8.752 c -0.436 -3.808 1.28 -7.471 4.479 -9.56 l 0.453 -0.296 V 38 h 1 c 0.553 0 1 -0.447 1 -1 s -0.447 -1 -1 -1 h -1 v -3 h 1 c 0.553 0 1 -0.447 1 -1 s -0.447 -1 -1 -1 h -1 v -3 h 1 c 0.553 0 1 -0.447 1 -1 s -0.447 -1 -1 -1 h -1 v -3 h 1 c 0.553 0 1 -0.447 1 -1 s -0.447 -1 -1 -1 h -1 v -3 h 1 c 0.553 0 1 -0.447 1 -1 s -0.447 -1 -1 -1 h -1 v -3 h 1 c 0.553 0 1 -0.447 1 -1 s -0.447 -1 -1 -1 h -1 V 8 h 1 c 0.553 0 1 -0.447 1 -1 s -0.447 -1 -1 -1 H 26.1 c 0.465 -2.279 2.484 -4 4.899 -4 c 2.757 0 5 2.243 5 5 v 1 h -1 c -0.553 0 -1 0.447 -1 1 s 0.447 1 1 1 h 1 v 3 h -1 c -0.553 0 -1 0.447 -1 1 s 0.447 1 1 1 h 1 v 3 h -1 c -0.553 0 -1 0.447 -1 1 s 0.447 1 1 1 h 1 v 3 h -1 c -0.553 0 -1 0.447 -1 1 s 0.447 1 1 1 h 1 v 3 h -1 c -0.553 0 -1 0.447 -1 1 s 0.447 1 1 1 h 1 v 3 h -1 c -0.553 0 -1 0.447 -1 1 s 0.447 1 1 1 h 1 v 4.329 l 0.453 0.296 c 2.848 1.857 4.547 4.988 4.547 8.375 C 40.999 50.841 39.784 53.557 37.666 55.453 Z'.split(' ').map((x: any) => isNaN(x) ? x : x * thermoScale).join(' ');
-    const translate = [radius - (thermoScale * 100 * 0.3), radius * 1.65]
-    return SvgUtil.createSVGElement('path', {
-      class: 'dial__ico__thermo',
-      d: thermoDef,
-      transform: 'translate(' + translate[0] + ',' + translate[1] + ')'
-    });
-  }
-
-  _buildDialSlot(index) {
-    return SvgUtil.createSVGElement('text', {
-      class: 'dial__lbl dial__lbl--ring',
-      id: `temperature_slot_${index}`
-    })
-  }
-
-  _buildText(radius, name, offset) {
-    const target = SvgUtil.createSVGElement('text', {
-      x: radius + offset,
-      y: radius,
-      class: `dial__lbl dial__lbl--${name}`,
-      id: name
-    });
-    const text = SvgUtil.createSVGElement('tspan', {
-    });
-    // hack
-    if (name == 'target' || name == 'ambient') offset += 20;
-    const superscript = SvgUtil.createSVGElement('tspan', {
-      x: radius + radius / 3.1 + offset,
-      y: radius - radius / 6,
-      class: `dial__lbl--super--${name}`
-    });
-    target.appendChild(text);
-    target.appendChild(superscript);
-    return target;
-  }
-
-  _buildControls(radius) {
-    let startAngle = 270;
-    let loop = 4;
-    for (let index = 0; index < loop; index++) {
-      const angle = 360 / loop;
-      const sector = SvgUtil.anglesToSectors(radius, startAngle, angle);
-      const controlsDef = 'M' + sector.L + ',' + sector.L + ' L' + sector.L + ',0 A' + sector.L + ',' + sector.L + ' 1 0,1 ' + sector.X + ', ' + sector.Y + ' z';
-      const path = SvgUtil.createSVGElement('path', {
-        class: 'dial__temperatureControl',
-        fill: 'blue',
-        d: controlsDef,
-        transform: 'rotate(' + sector.R + ', ' + sector.L + ', ' + sector.L + ')'
-      });
-      this._controls.push(path);
-      path.addEventListener('click', () => this._temperatureControlClicked(index));
-      this._root.appendChild(path);
-      startAngle = startAngle + angle;
-    }
   }
 }

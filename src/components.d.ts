@@ -30,7 +30,8 @@ declare global {
 
   namespace StencilComponents {
     interface ThermostatCard {
-
+      'hass': any;
+      'setConfig': (config: any) => void;
     }
   }
 
@@ -53,7 +54,7 @@ declare global {
   }
   namespace JSXElements {
     export interface ThermostatCardAttributes extends HTMLAttributes {
-
+      'hass'?: any;
     }
   }
 }
@@ -78,11 +79,15 @@ declare global {
     chevron_size: number,
     control: any,
   };
+      'chevron_size': number;
+      'control': any;
       'diameter': number;
       'hvac_state': any;
       'max_value': number;
       'min_value': number;
       'num_ticks': number;
+      'pending': number;
+      'stateAttribute': any;
     }
   }
 
@@ -120,11 +125,16 @@ declare global {
     chevron_size: number,
     control: any,
   };
+      'chevron_size'?: number;
+      'control'?: any;
       'diameter'?: number;
       'hvac_state'?: any;
       'max_value'?: number;
       'min_value'?: number;
       'num_ticks'?: number;
+      'onOnUpdate'?: (event: CustomEvent) => void;
+      'pending'?: number;
+      'stateAttribute'?: any;
     }
   }
 }
